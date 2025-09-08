@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8" />
+<title>專案管理系統</title>
+<style></style>
+</head>
+<body>
+  
+<h1>📌 專案管理系統</h1>
+<div class="container">
+  <div class="card">
+    <h2>主管指派專案</h2>
+    <label>專案名稱</label>
+    <input id="projectName" placeholder="專案名稱">
+    <label>負責人（姓名）</label>
+    <input id="assignee" placeholder="負責人員">
+    <div style="margin-top:10px;">
+      <button onclick="addProject()">➕ 新增專案</button>
+    </div>
+
+    <hr style="margin:12px 0; border:none; border-top:1px solid #eef2f6;">
+
+    <label>通知（選擇專案人員與專案）</label>
+    <select id="notifyProject">
+      <option value="">請選擇專案</option>
+    </select>
+    <textarea id="notifyText" placeholder="輸入通知內容"></textarea>
+    <div style="margin-top:8px;">
+      <button onclick="sendNotification()">發送通知</button>
+    </div>
+    <div id="notifyLog" class="small" style="margin-top:8px; color:#333;"></div>
+  </div>
+
+  <div class="card" style="flex:1 1 100%;">
+    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap;">
+      <div>
+        <h3>執行專案管理</h3>
+        <strong>專案清單</strong>
+        <span class="counters">
+          <span class="badge" id="cnt-running">執行中 0</span>
+          <span class="badge" id="cnt-closed">已結案 0</span>
+          <span class="badge" id="cnt-stopped">已停止 0</span>
+        </span>
+      </div>
+
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+        <div>
+          <label style="margin:0 6px 0 0; font-weight:600;">篩選人員</label>
+          <select id="filterUser" onchange="renderProjects()">
+            <option value="all">全部人員</option>
+          </select>
+        </div>
+        <div>
+          <label style="margin:0 6px 0 0; font-weight:600;">篩選狀態</label>
+          <select id="filterStatus" onchange="renderProjects()">
+            <option value="all">全部</option>
+            <option value="執行中">執行中</option>
+            <option value="已結案">已結案</option>
+            <option value="已停止">已停止</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div id="projectList" style="margin-top:12px;"></div>
+  </div>
+</div>
+
+<script></script>
+</body>
+</html>
