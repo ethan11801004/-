@@ -6,9 +6,9 @@
 <style>
   body{font-family:Arial,"Noto Sans TC",sans-serif;margin:20px;background:#f5f7fb}
   h1{text-align:center;margin-bottom:8px}
-  .container{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
+  .container{display:flex;gap:16px;align-items:flex-start;flex-wrap:nowrap}
   .card{background:#fff;padding:14px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,.06);width:48%;border:2px solid #d1d5db}
-  .wide{width:100%}
+  .wide{width:48%}
   .small{font-size:0.9rem;color:#555}
   .task{border:1px solid #e3e7ee;padding:10px;border-radius:6px;margin:8px 0;background:#fcfdff}
   .controls{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}
@@ -19,12 +19,19 @@
   label{display:block;margin:8px 0 4px;font-weight:600}
   .counters{display:inline-flex;gap:8px;margin-left:12px;align-items:center}
   .badge{background:#eef2ff;color:#3730a3;padding:4px 8px;border-radius:999px;font-size:0.85rem;border:1px solid #e0e7ff}
-  select,input[type="text"],input[type="date"]{padding:6px 8px;border-radius:6px;border:1px solid #cbd5e1;width:100%;box-sizing:border-box}
+  select,input[type="text"],input[type="date"],input[type="number"]{padding:6px 8px;border-radius:6px;border:1px solid #cbd5e1;width:100%;box-sizing:border-box}
   .card h2,.card h3{margin-top:0;padding-bottom:6px;border-bottom:2px solid #e5e7eb}
   .msg{display:flex;align-items:center;justify-content:space-between;padding:6px;border-radius:6px;background:#f7fafc;margin:6px 0}
   .msg .txt{flex:1;margin-right:8px}
   .msg button{background:none;border:none;color:red;font-weight:bold;cursor:pointer}
   .meta{color:#666;font-size:0.85rem;margin-top:6px}
+
+/* responsive: allow stacking under certain width */
+@media (max-width:900px){
+  .container{flex-wrap:wrap}
+  .card{width:100%}
+  .wide{width:100%}
+}
 </style>
 </head>
 <body>
@@ -52,8 +59,8 @@
 
       <hr style="margin:12px 0;border:none;border-top:1px solid #eef2f6">
 
-      <h3>主管通知（針對專案）</h3>
-      <label>選擇專案（僅未結案/未停止）</label>
+      <h3>主管通知</h3>
+      <label>選擇專案(僅未結案/未停止）</label>
       <select id="notifyProject"><option value="">請選專案</option></select>
 
       <label>通知內容</label>
@@ -104,15 +111,11 @@
   </div>
 
 <script>
-/* ---------- 資料結構 ----------
-project: { id, name, assignee, department, priority, status,
-           startTime, totalTime, created, endAt, logs: [{id,text,type,time}], draftReport, expectedDate }
-notification stored also in notifications array: {id, projectId, text, time}
--------------------------------------------------- */
+
 
 const SUPER_PASSWORD = "666666";
-let projects = [];        // array of project objects
-let notifications = [];   // array of notifications for left log UI
+let projects = [];        
+let notifications = [];
 
 /* ---------- helpers ---------- */
 function genId(){ return Date.now().toString(36) + "-" + Math.floor(Math.random()*10000); }
@@ -144,13 +147,16 @@ function addProject(){
     endAt: null,
     logs: [{id: genId(), text:`建立於 ${nowISO()}`, type:'system', time:Date.now()}],
     draftReport: "",
-    expectedDate: ""
+    expectedDate: "",
+    manualTotalHours: "",
+    manualApplied: false
   };
   projects.push(p);
   updateFilterOptions();
   updateNotifyOptions();
   renderProjects();
   document.getElementById("projectName").value = "";
+  document.getElementById("assignee").value = "";
 }
 
 /* ---------- 通知（針對專案） ---------- */
@@ -185,7 +191,7 @@ function sendNotification(){
   document.getElementById("notifyText").value = "";
 }
 
-/* delete notification (撤回) */
+/* (撤回) */
 function deleteNotification(nid){
   notifications = notifications.filter(n => n.id !== nid);
   // remove from project logs any log with that id
@@ -209,7 +215,7 @@ function updateNotifyLog(){
   });
 }
 
-/* ---------- 回報 submit（含預計完成日） ---------- */
+/* 回報 */
 function submitReport(projectId){
   const ta = document.getElementById(`report-${projectId}`);
   const dateEl = document.getElementById(`date-${projectId}`);
@@ -226,6 +232,10 @@ function submitReport(projectId){
   if(text) logText = `進度回報 (${nowISO()}): ${text}`;
   if(logText){
     p.logs.push({id, text: logText, type:'report', time: now});
+  }
+  // **重要**：回報時不清除預計完成日，且儲存回 p.expectedDate
+  if(dateVal){
+    p.expectedDate = dateVal;
   }
   if(ta) { ta.value = ""; p.draftReport = ""; }
   renderProjects();
@@ -292,10 +302,22 @@ function stopProject(id){
 function closeProject(id){
   const p = projects.find(x=>x.id===id);
   if(!p || p.status === "已結案") return;
+  // 若正在執行中，先累計時間
   if(p.status === "執行中"){
     p.totalTime += Date.now() - p.startTime;
     p.startTime = null;
   }
+
+  // 如果使用者有填入 manual hours 且有預計完成日，套用該人工輸入總工時（以小時為單位）
+  if(p.expectedDate && p.manualTotalHours && !p.manualApplied){
+    const num = Number(p.manualTotalHours);
+    if(!isNaN(num) && num >= 0){
+      p.totalTime = num * 3600000; // 轉成毫秒
+      p.manualApplied = true;
+      p.logs.push({id: genId(), text:`使用者輸入執行總工時 ${num} 小時，已套用於結案時計算效率 (${nowISO()})`, type:'system', time: Date.now()});
+    }
+  }
+
   p.status = "已結案";
   p.endAt = Date.now();
   p.logs.push({id: genId(), text:`結案於 ${nowISO()}`, type:'system', time: Date.now()});
@@ -348,27 +370,76 @@ function saveDrafts(){
     if(ta) p.draftReport = ta.value;
     const dateEl = document.getElementById(`date-${p.id}`);
     if(dateEl) p.expectedDate = dateEl.value;
+    const totalEl = document.getElementById(`totalHours-${p.id}`);
+    if(totalEl) p.manualTotalHours = totalEl.value;
   });
 }
 
 /* ---------- 效率計算（小時/天） ---------- */
 function efficiency(p){
-  const end = (p.endAt && (p.status === "已結案" || p.status === "已停止")) ? p.endAt : Date.now();
-  const days = Math.max(1, Math.ceil((end - p.created) / 86400000));
+  // if user provided expectedDate, use plannedDays between created and expectedDate
+  let plannedDays = null;
+  if(p.expectedDate){
+    try{
+      const expectedTs = new Date(p.expectedDate).getTime();
+      const createdTs = p.created;
+      const days = Math.ceil(Math.max(1, (expectedTs - createdTs) / 86400000));
+      plannedDays = Math.max(1, days);
+    }catch(e){
+      plannedDays = null;
+    }
+  }
+
+  // total hours (ms -> hours)
   const runningExtra = (p.status === "執行中" && p.startTime) ? (Date.now() - p.startTime) : 0;
   const hours = (p.totalTime + runningExtra) / 3600000;
-  return (hours / days).toFixed(2);
+
+  if(plannedDays){
+    // 使用預計天數作為分母（當使用者填了預計完成日時，依照你的需求）
+    return (hours / plannedDays).toFixed(2);
+  } else {
+    const end = (p.endAt && (p.status === "已結案" || p.status === "已停止")) ? p.endAt : Date.now();
+    const days = Math.max(1, Math.ceil((end - p.created) / 86400000));
+    return (hours / days).toFixed(2);
+  }
+}
+
+/* 進度百分比：若有預計完成日，顯示已過天數 / 預定天數 百分比 */
+function progressPercent(p){
+  if(!p.expectedDate) return null;
+  const createdTs = p.created;
+  const expectedTs = new Date(p.expectedDate).getTime();
+  const endTs = (p.endAt && (p.status === "已結案" || p.status === "已停止")) ? p.endAt : Date.now();
+  const totalPlannedDays = Math.max(1, Math.ceil((expectedTs - createdTs) / 86400000));
+  const elapsedDays = Math.max(0, Math.ceil((endTs - createdTs) / 86400000));
+  const percent = Math.min(100, Math.round((elapsedDays / totalPlannedDays) * 100));
+  return { percent, elapsedDays, totalPlannedDays };
 }
 
 /* ---------- 篩選選單更新 & counters ---------- */
 function updateFilterOptions(){
   const deptSel = document.getElementById("filterDept");
   const userSel = document.getElementById("filterUser");
+
+  // 先記錄目前選取值
+  const currentDept = deptSel.value;
+  const currentUser = userSel.value;
+
+  // 取得專案中的部門 / 人員
   const depts = Array.from(new Set(projects.map(p=>p.department)));
   const users = Array.from(new Set(projects.map(p=>p.assignee)));
-  deptSel.innerHTML = `<option value="all">全部部門</option>` + depts.map(d=>`<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join("");
-  userSel.innerHTML = `<option value="all">全部人員</option>` + users.map(u=>`<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`).join("");
+
+  // 重建選單
+  deptSel.innerHTML = `<option value="all">全部部門</option>` +
+    depts.map(d=>`<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join("");
+  userSel.innerHTML = `<option value="all">全部人員</option>` +
+    users.map(u=>`<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`).join("");
+
+  // 還原原本選擇，若不存在則退回 all
+  deptSel.value = depts.includes(currentDept) ? currentDept : "all";
+  userSel.value = users.includes(currentUser) ? currentUser : "all";
 }
+
 
 function updateCounters(){
   document.getElementById("cnt-running").textContent = `執行中 ${projects.filter(p=>p.status==="執行中").length}`;
@@ -415,6 +486,10 @@ function renderProjects(){
       priorityOpts += `<option value="${i}" ${p.priority===i? 'selected':''}>${i}</option>`;
     }
 
+    // progress percent
+    const prog = progressPercent(p);
+    const progHtml = prog ? `<div class="small">效率：${prog.percent}%（${prog.elapsedDays}/${prog.totalPlannedDays} 天）</div>` : '';
+
     const div = document.createElement("div");
     div.className = "task";
     div.innerHTML = `
@@ -422,11 +497,12 @@ function renderProjects(){
         <div style="flex:1">
           <strong>${escapeHtml(p.name)}</strong>
           <div class="meta">${escapeHtml(p.assignee)} ／ ${escapeHtml(p.department)} ／ 優先 ${p.priority}</div>
+          ${progHtml}
         </div>
         <div style="text-align:right">
           <div class="small">累積工時</div>
           <div style="font-weight:700" id="elapsed-${p.id}">${formatTime(elapsedMs)}</div>
-          <div class="small">效率：${efficiency(p)} 小時/天</div>
+          <div class="small">進度：${efficiency(p)} 小時</div>
         </div>
       </div>
 
@@ -443,10 +519,14 @@ function renderProjects(){
       </div>
 
       <div style="margin-top:8px">
-        <label>回報進度</label>
-        <textarea id="report-${p.id}" placeholder="${p.status==='已結案'||p.status==='已停止' ? '本專案已結案或已停止，不可回報' : '輸入回報內容'}">${escapeHtml(p.draftReport||'')}</textarea>
         <label style="margin-top:6px">預計完成日</label>
         <input type="date" id="date-${p.id}" value="${p.expectedDate||''}">
+        <label>回報進度</label>
+        <textarea id="report-${p.id}" placeholder="${p.status==='已結案'||p.status==='已停止' ? '本專案已結案或已停止，不可回報' : '輸入回報內容'}">${escapeHtml(p.draftReport||'')}</textarea>
+
+        <label style="margin-top:6px">執行總工時</label>
+        <input type="number" id="totalHours-${p.id}" min="0" step="0.1" placeholder="例如：12.5" value="${p.manualTotalHours||''}">
+
         <div style="margin-top:6px">
           <button onclick="submitReport('${p.id}')" ${p.status==='已結案'||p.status==='已停止' ? 'disabled' : ''}>送出回報</button>
         </div>
