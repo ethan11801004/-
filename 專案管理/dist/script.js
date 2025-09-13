@@ -39,7 +39,8 @@ function addProject(){
     draftReport: "",
     expectedDate: "",
     manualTotalHours: "",
-    manualApplied: false
+    manualApplied: false,
+    mediaFiles: [] // 新增多媒體陣列
   };
   projects.push(p);
   updateFilterOptions();
@@ -70,11 +71,9 @@ function sendNotification(){
   if(!txt){ alert("請輸入內容"); return; }
   const p = projects.find(x=>x.id===pid);
   if(!p) return;
-  // create notification record
   const nid = genId();
   const time = Date.now();
   notifications.unshift({id:nid, projectId:pid, text:txt, time});
-  // write into project logs with reference to nid
   p.logs.push({id: nid, text:`主管意見 (${new Date(time).toLocaleString()}): ${txt}`, type:'notif', time});
   updateNotifyLog();
   renderProjects();
@@ -84,7 +83,6 @@ function sendNotification(){
 /* (撤回) */
 function deleteNotification(nid){
   notifications = notifications.filter(n => n.id !== nid);
-  // remove from project logs any log with that id
   projects.forEach(p => {
     p.logs = p.logs.filter(l => l.id !== nid);
   });
@@ -113,41 +111,44 @@ function submitReport(projectId){
   const text = ta ? ta.value.trim() : "";
   const dateVal = dateEl ? dateEl.value : "";
   if(!text && !dateVal){ alert("請輸入回報內容或填寫預計完成日"); return; }
+
   const p = projects.find(x=>x.id===projectId);
   if(!p) return;
   if(p.status === "已結案" || p.status === "已停止"){ alert("此專案已結案或已停止，無法回報"); return; }
+
   const id = genId();
   const now = Date.now();
   let logText = '';
   if(text) logText = `進度回報 (${nowISO()}): ${text}`;
-  if(logText){
-    p.logs.push({id, text: logText, type:'report', time: now});
+
+  if(logText || p.mediaFiles.length > 0){
+    // ✅ 把目前暫存的 mediaFiles 複製到 log
+    p.logs.push({
+      id,
+      text: logText,
+      type:'report',
+      time: now,
+      attachments: [...p.mediaFiles]  // 複製
+    });
+    p.mediaFiles = []; // 清空暫存，但 log 裡已經保留
   }
-  // **重要**：回報時不清除預計完成日，且儲存回 p.expectedDate
+
   if(dateVal){
     p.expectedDate = dateVal;
   }
+
   if(ta) { ta.value = ""; p.draftReport = ""; }
   renderProjects();
 }
 
-/* ---------- 刪除 log（回報或通知撤回） ---------- */
+
+/* ---------- 刪除 log ---------- */
 function deleteLog(projectId, logId){
   const p = projects.find(x=>x.id===projectId);
   if(!p) return;
-// 禁止刪除主管通知
   const log = p.logs.find(l => l.id === logId);
-  if(log && log.type === 'notif'){
-    alert("主管發送通知不可刪除。");
-    return;
-  }
-  // ✅ 若為已結案或已停止，不允許刪除
-  if(p.status === "已結案" || p.status === "已停止"){
-    alert("此專案已結案或已停止，無法刪除紀錄。");
-    return;
-  }
-
-  // 執行刪除
+  if(log && log.type === 'notif'){ alert("主管發送通知不可刪除。"); return; }
+  if(p.status === "已結案" || p.status === "已停止"){ alert("此專案已結案或已停止，無法刪除紀錄。"); return; }
   p.logs = p.logs.filter(l => l.id !== logId);
   notifications = notifications.filter(n => n.id !== logId);
   renderProjects();
@@ -197,29 +198,24 @@ function stopProject(id){
 function closeProject(id){
   const p = projects.find(x=>x.id===id);
   if(!p || p.status === "已結案") return;
-  // 若正在執行中，先累計時間
   if(p.status === "執行中"){
     p.totalTime += Date.now() - p.startTime;
     p.startTime = null;
   }
-
-  // 如果使用者有填入 manual hours 且有預計完成日，套用該人工輸入總工時（以小時為單位）
   if(p.expectedDate && p.manualTotalHours && !p.manualApplied){
     const num = Number(p.manualTotalHours);
     if(!isNaN(num) && num >= 0){
-      p.totalTime = num * 3600000; // 轉成毫秒
+      p.totalTime = num * 3600000;
       p.manualApplied = true;
       p.logs.push({id: genId(), text:`使用者輸入執行總工時 ${num} 小時，已套用於結案時計算效率 (${nowISO()})`, type:'system', time: Date.now()});
     }
   }
-
   p.status = "已結案";
   p.endAt = Date.now();
   p.logs.push({id: genId(), text:`結案於 ${nowISO()}`, type:'system', time: Date.now()});
   renderProjects();
 }
 
-/* 解鎖需密碼 */
 function unlockProject(projectId){
   const p = projects.find(x=>x.id===projectId);
   if(!p) return;
@@ -234,38 +230,31 @@ function unlockProject(projectId){
   }
 }
 
-/* ---------- 優先順序（主管調整） ---------- */
+/* ---------- 優先順序 ---------- */
 function changePriority(id, newPriority){
   newPriority = Number(newPriority);
   const p = projects.find(x=>x.id===id);
   if(!p) return;
-  // 儲存草稿（避免 textarea 被重建清掉）
   saveDrafts();
-
-  // 只針對同人「未結案/未停止」專案排序
   const active = projects
       .filter(x=>x.assignee===p.assignee && x.status!=='已結案' && x.status!=='已停止')
       .sort((a,b)=>a.priority-b.priority);
-  
   const others = active.filter(x=>x.id !== p.id);
   const insertIndex = Math.max(0, Math.min(newPriority-1, others.length));
   others.splice(insertIndex, 0, p);
   others.forEach((proj, i) => proj.priority = i+1);
-
-  // 將排序後的 active 專案套回 projects
   projects = projects.map(prj => {
     if(prj.assignee !== p.assignee) return prj;
-    if(prj.status==='已結案' || prj.status==='已停止') return prj; // 保留結案/停止順序
+    if(prj.status==='已結案' || prj.status==='已停止') return prj;
     return others.find(x=>x.id===prj.id) || prj;
   });
-
   p.logs.push({id: genId(), text:`主管修改優先度為 ${newPriority}（${nowISO()}）`, type:'system', time: Date.now()});
   updateFilterOptions();
   updateNotifyOptions();
   renderProjects();
 }
 
-/* ---------- 儲存 textarea 草稿（避免重建時遺失） ---------- */
+/* ---------- 儲存 textarea 草稿 ---------- */
 function saveDrafts(){
   projects.forEach(p=>{
     const ta = document.getElementById(`report-${p.id}`);
@@ -277,25 +266,18 @@ function saveDrafts(){
   });
 }
 
-/* ---------- 效率計算（小時/天） ---------- */
+/* ---------- 效率/進度 ---------- */
 function efficiency(p){
-  // 新邏輯：依據「開立日期(created) / 預定完成日(expectedDate) / 實際完成日(endAt)」計算效率
-  // 若沒有預計完成日則無法計算，回傳 "N/A"
   if(!p.expectedDate) return "N/A";
-
   const createdTs = p.created;
   const expectedTs = new Date(p.expectedDate).getTime();
   const endTs = (p.endAt && (p.status === "已結案" || p.status === "已停止")) ? p.endAt : Date.now();
-
   const plannedDays = Math.max(1, Math.ceil((expectedTs - createdTs) / 86400000));
   const actualDays = Math.max(1, Math.ceil((endTs - createdTs) / 86400000));
-
-  // 效率 = (預定天數 / 實際天數) * 100%
   const effPercent = (plannedDays / actualDays) * 100;
   return effPercent.toFixed(1) + "%";
 }
 
-/* 進度百分比：若有預計完成日，顯示已過天數 / 預定天數 百分比 */
 function progressPercent(p){
   if(!p.expectedDate) return null;
   const createdTs = p.created;
@@ -311,31 +293,120 @@ function progressPercent(p){
 function updateFilterOptions(){
   const deptSel = document.getElementById("filterDept");
   const userSel = document.getElementById("filterUser");
-
-  // 先記錄目前選取值
   const currentDept = deptSel.value;
   const currentUser = userSel.value;
-
-  // 取得專案中的部門 / 人員
   const depts = Array.from(new Set(projects.map(p=>p.department)));
   const users = Array.from(new Set(projects.map(p=>p.assignee)));
-
-  // 重建選單
   deptSel.innerHTML = `<option value="all">全部部門</option>` +
     depts.map(d=>`<option value="${escapeHtml(d)}">${escapeHtml(d)}</option>`).join("");
   userSel.innerHTML = `<option value="all">全部人員</option>` +
     users.map(u=>`<option value="${escapeHtml(u)}">${escapeHtml(u)}</option>`).join("");
-
-  // 還原原本選擇，若不存在則退回 all
   deptSel.value = depts.includes(currentDept) ? currentDept : "all";
   userSel.value = users.includes(currentUser) ? currentUser : "all";
 }
-
 
 function updateCounters(){
   document.getElementById("cnt-running").textContent = `執行中 ${projects.filter(p=>p.status==="執行中").length}`;
   document.getElementById("cnt-closed").textContent = `已結案 ${projects.filter(p=>p.status==="已結案").length}`;
   document.getElementById("cnt-stopped").textContent = `已停止 ${projects.filter(p=>p.status==="已停止").length}`;
+}
+
+/* ---------- 多媒體上傳功能 ---------- */
+function handleMediaUpload(projectId){
+  const input = document.getElementById(`media-${projectId}`);
+  const preview = document.getElementById(`mediaPreview-${projectId}`);
+  if(!input || !preview) return;
+
+  const p = projects.find(x=>x.id===projectId);
+  if(!p) return;
+
+  Array.from(input.files).forEach(file => {
+    const url = URL.createObjectURL(file);
+    const fileId = genId();  // 生成唯一 id
+    p.mediaFiles.push({id: fileId, name: file.name, type: file.type, url});
+
+    // 建立容器
+    const wrapper = document.createElement('div');
+    wrapper.style.position = "relative";
+    wrapper.style.display = "inline-block";
+
+    let el;
+    if(file.type.startsWith('image/')){
+  el = document.createElement('img');
+  el.src = url;
+  el.style.width = "120px";   // 縮圖
+  el.style.height = "auto";
+  el.style.border = "1px solid #ccc";
+  el.style.borderRadius = "4px";
+  el.style.cursor = "zoom-in";
+
+  // ✅ 改成 DOM 事件，不用字串屬性
+  el.addEventListener("dblclick", () => showImagePreview(url));
+}
+    else if(file.type.startsWith('video/')){
+      el = document.createElement('video');
+      el.src = url;
+      el.controls = true;
+      el.style.width = "150px";
+      el.style.height = "auto";
+      el.style.border = "1px solid #ccc";
+      el.style.borderRadius = "4px";
+    }
+
+    // 建立刪除按鈕
+    const delBtn = document.createElement('button');
+    delBtn.textContent = "✖";
+    delBtn.style.position = "absolute";
+    delBtn.style.top = "2px";
+    delBtn.style.right = "2px";
+    delBtn.style.background = "rgba(255,0,0,0.7)";
+    delBtn.style.color = "#fff";
+    delBtn.style.border = "none";
+    delBtn.style.borderRadius = "50%";
+    delBtn.style.cursor = "pointer";
+    delBtn.onclick = () => {
+      // 移除畫面上的元素
+      wrapper.remove();
+      // 移除專案資料裡的檔案紀錄
+      p.mediaFiles = p.mediaFiles.filter(m => m.id !== fileId);
+    };
+
+    wrapper.appendChild(el);
+    wrapper.appendChild(delBtn);
+    preview.appendChild(wrapper);
+  });
+
+  input.value = ""; // 清空，允許重複上傳同檔案
+}
+function showImagePreview(url){
+  // 建立遮罩
+  const overlay = document.createElement('div');
+  overlay.style.position = "fixed";
+  overlay.style.top = 0;
+  overlay.style.left = 0;
+  overlay.style.width = "100vw";
+  overlay.style.height = "100vh";
+  overlay.style.background = "rgba(0,0,0,0.7)";
+  overlay.style.display = "flex";
+  overlay.style.alignItems = "center";
+  overlay.style.justifyContent = "center";
+  overlay.style.zIndex = 9999;
+
+  // 建立大圖
+  const bigImg = document.createElement('img');
+  bigImg.src = url;
+  bigImg.style.maxWidth = "90%";
+  bigImg.style.maxHeight = "90%";
+  bigImg.style.borderRadius = "8px";
+  bigImg.style.boxShadow = "0 4px 12px rgba(0,0,0,0.5)";
+  bigImg.style.cursor = "zoom-out";
+  
+ overlay.appendChild(bigImg);
+
+  // 點擊遮罩或圖片都能關閉
+  overlay.addEventListener("click", () => overlay.remove());
+
+  document.body.appendChild(overlay);
 }
 
 /* ---------- 主渲染 ---------- */
@@ -345,42 +416,28 @@ function renderProjects(){
   updateFilterOptions();
   updateNotifyOptions();
   updateNotifyLog();
-
   const userFilter = document.getElementById("filterUser").value;
   const deptFilter = document.getElementById("filterDept").value;
   const statusFilter = document.getElementById("filterStatus").value;
-
-  // sort by assignee then priority
   projects.sort((a,b)=> a.assignee === b.assignee ? a.priority - b.priority : a.assignee.localeCompare(b.assignee));
-
   const list = document.getElementById("projectList");
   list.innerHTML = "";
-
   projects.filter(p=>{
     let ok = true;
     if(userFilter !== "all") ok = ok && p.assignee === userFilter;
     if(deptFilter !== "all") ok = ok && p.department === deptFilter;
-    if(statusFilter === "all"){
-      // 「全部」只顯示 未開始 / 執行中 / 已暫停
-      ok = ok && (p.status === "未開始" || p.status === "執行中" || p.status === "已暫停");
-    } else {
-      ok = ok && p.status === statusFilter;
-    }
+    if(statusFilter === "all") ok = ok && (p.status === "未開始" || p.status === "執行中" || p.status === "已暫停");
+    else ok = ok && p.status === statusFilter;
     return ok;
   }).forEach(p=>{
     const elapsedMs = p.totalTime + ((p.status === "執行中" && p.startTime) ? (Date.now() - p.startTime) : 0);
-
-    // priority select options (按同人專案數量)
     const same = projects.filter(x=>x.assignee===p.assignee).sort((a,b)=>a.priority-b.priority);
     let priorityOpts = "";
     for(let i=1;i<=same.length;i++){
       priorityOpts += `<option value="${i}" ${p.priority===i? 'selected':''}>${i}</option>`;
     }
-
-    // progress percent (保留原本，但標示為「進度」)
     const prog = progressPercent(p);
     const progHtml = prog ? `<div class="small">進度：${prog.percent}%（${prog.elapsedDays}/${prog.totalPlannedDays} 天）</div>` : '';
-
     const div = document.createElement("div");
     div.className = "task";
     div.innerHTML = `
@@ -424,29 +481,60 @@ function renderProjects(){
         </div>
       </div>
 
-      <div class="log" id="log-${p.id}">
+      <div style="margin-top:8px">
+        <label>上傳影音/圖片</label>
+        <input type="file" id="media-${p.id}" multiple accept="image/*,video/*">
+        <div id="mediaPreview-${p.id}" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"></div>
+      </div>
+
+ <div class="log" id="log-${p.id}">
   ${p.logs.map(l => {
     const safe = escapeHtml(l.text);
-    if(l.type === 'report'){ // 只對回報加刪除鍵
-      return `<div class="msg"><div class="txt">${safe}</div><div><button onclick="deleteLog('${p.id}','${l.id}')">X</button></div></div>`;
-    } else { // notif 或 system 不加刪除鍵
-      return `<div class="msg"><div class="txt">${safe}</div></div>`;
+    let html = "";
+    if(l.type === 'report'){ 
+      html = `<div class="msg"><div class="txt">${safe}</div><div><button onclick="deleteLog('${p.id}','${l.id}')">X</button></div></div>`;
+    } else {
+      html = `<div class="msg"><div class="txt">${safe}</div></div>`;
     }
+
+    // ✅ 顯示附件
+    if(l.attachments && l.attachments.length > 0){
+      html += `<div class="attachments">
+        ${l.attachments.map(att => {
+          if(att.type.startsWith("image/")){
+            return `<div class="file-preview">
+                      <img src="${att.url}" style="width:120px;cursor:zoom-in;border:1px solid #ccc;border-radius:4px"
+                           ondblclick="showImagePreview('${att.url}')">
+                      <div class="filename">${escapeHtml(att.name)}</div>
+                    </div>`;
+          } else if(att.type.startsWith("video/")){
+            return `<div class="file-preview">
+                      <video src="${att.url}" controls style="width:160px;max-height:120px"></video>
+                      <div class="filename">${escapeHtml(att.name)}</div>
+                    </div>`;
+          } else {
+            return `<div class="file-preview">
+                      <a href="${att.url}" download="${escapeHtml(att.name)}">📄 ${escapeHtml(att.name)}</a>
+                    </div>`;
+          }
+        }).join('')}
+      </div>`;
+    }
+    return html;
   }).join('')}
-</div>
-    `;
+
+`;
     list.appendChild(div);
-    
-// ✅ 在 DOM 插入後自動滾動到末筆
-const logEl = document.getElementById(`log-${p.id}`);
-if(logEl){
-  logEl.scrollTop = logEl.scrollHeight;
-}    
+
+    const logEl = document.getElementById(`log-${p.id}`);
+    if(logEl) logEl.scrollTop = logEl.scrollHeight;
+
+    const mediaInput = document.getElementById(`media-${p.id}`);
+    if(mediaInput) mediaInput.onchange = ()=> handleMediaUpload(p.id);
   });
 }
 
-
-/* 更新 timers (避免重建 DOM 造成輸入框被清掉) */
+/* 更新 timers */
 function updateTimers(){
   projects.forEach(p=>{
     const el = document.getElementById(`elapsed-${p.id}`);
