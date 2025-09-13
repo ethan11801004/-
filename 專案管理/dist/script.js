@@ -28,7 +28,7 @@ function toggleSupervisorPanel() {
     const user = prompt("請輸入帳號:");
     const pass = prompt("請輸入密碼:");
 
-    if ((user === "user1" && pass === "123") ||
+    if ((user === "陳維塘" && pass === "123") ||
         (user === "user2" && pass === "456") ||
         (user === "user3" && pass === "789")
        )
@@ -445,148 +445,200 @@ function showImagePreview(url){
 
   document.body.appendChild(overlay);
 }
+/* ---------- 翻頁控制 ---------- */
+let currentIndex = 0;  // 當前頁
+
+function prevPage(){
+  if(currentIndex > 0){
+    currentIndex--;
+    renderProjects();
+  }
+}
+function nextPage(){
+  if(currentIndex < filteredProjects.length - 1){
+    currentIndex++;
+    renderProjects();
+  }
+}
 
 /* ---------- 主渲染 ---------- */
+let filteredProjects = [];
+
 function renderProjects(){
   saveDrafts();
   updateCounters();
   updateFilterOptions();
   updateNotifyOptions();
   updateNotifyLog();
+
   const userFilter = document.getElementById("filterUser").value;
   const deptFilter = document.getElementById("filterDept").value;
   const statusFilter = document.getElementById("filterStatus").value;
+
   projects.sort((a,b)=> a.assignee === b.assignee ? a.priority - b.priority : a.assignee.localeCompare(b.assignee));
   const list = document.getElementById("projectList");
   list.innerHTML = "";
-  projects.filter(p=>{
+
+  // 篩選
+  filteredProjects = projects.filter(p=>{
     let ok = true;
     if(userFilter !== "all") ok = ok && p.assignee === userFilter;
     if(deptFilter !== "all") ok = ok && p.department === deptFilter;
     if(statusFilter === "all") ok = ok && (p.status === "未開始" || p.status === "執行中" || p.status === "已暫停");
     else ok = ok && p.status === statusFilter;
     return ok;
-  }).forEach(p=>{
-    const elapsedMs = p.totalTime + ((p.status === "執行中" && p.startTime) ? (Date.now() - p.startTime) : 0);
-    const same = projects.filter(x=>x.assignee===p.assignee).sort((a,b)=>a.priority-b.priority);
-    let priorityOpts = "";
-    for(let i=1;i<=same.length;i++){
-      priorityOpts += `<option value="${i}" ${p.priority===i? 'selected':''}>${i}</option>`;
-    }
-    const prog = progressPercent(p);
-    const progHtml = prog ? `<div class="small">進度：${prog.percent}%（${prog.elapsedDays}/${prog.totalPlannedDays} 天）</div>` : '';
-    const div = document.createElement("div");
-    div.className = "task";
-    div.innerHTML = `
-      <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
-        <div style="flex:1">
-         <strong class="meta">專案編號: ${escapeHtml(p.projectCode)}</strong>
-         <br>
-         <strong class="meta">專案名稱: ${escapeHtml(p.name)}</strong>
-         <div class="meta">建立日期：${new Date(p.created).toLocaleString()}</div>
-         <div class="meta">指派人：${escapeHtml(p.supervisor)}</div>
-          <div class="meta">${escapeHtml(p.assignee)} ／ ${escapeHtml(p.department)} ／ 優先 ${p.priority}</div>
-          ${progHtml}
-        </div>
-        <div style="text-align:right">
-          <div class="small">累積工時</div>
-          <div style="font-weight:700" id="elapsed-${p.id}">${formatTime(elapsedMs)}</div>
-          <div class="small">效率：${efficiency(p)}</div>
-        </div>
-      </div>
-
-      <div style="margin-top:8px">
-        <label style="margin:6px 0 4px">優先度 (1 = 最高)</label>
-        <select style="width:20%;" onchange="changePriority('${p.id}', this.value)">${priorityOpts}</select>
-      </div>
-
-      <div class="controls" style="margin-top:8px">
-        <button onclick="startProject('${p.id}')" ${p.status==='執行中' ? 'disabled' : ''}>▶ 開始</button>
-        <button onclick="pauseProject('${p.id}')" ${p.status!=='執行中' ? 'disabled' : ''}>⏸ 暫停</button>
-        <button onclick="stopProject('${p.id}')" ${p.status==='已停止' || p.status==='已結案' ? 'disabled' : ''}>■ 停止（中止）</button>
-        <button onclick="closeProject('${p.id}')" ${p.status==='已結案' ? 'disabled' : ''}>✅ 結案</button>
-      </div>
-
-      <div style="margin-top:8px">
-        <label style="margin-top:6px">預計完成日</label>
-        <input type="date" id="date-${p.id}" value="${p.expectedDate||''}" 
-       ${p.status==='已結案'||p.status==='已停止' ? 'disabled' : ''}>
-       
-        <label style="margin-top:6px">執行總工時</label>
-        <input type="number" id="totalHours-${p.id}" min="0" step="0.1" placeholder="例如：12.5" value="${p.manualTotalHours||''}">
-       
-        <label>回報進度</label>
-        <textarea id="report-${p.id}" placeholder="${p.status==='已結案'||p.status==='已停止' ? '本專案已結案或已停止，不可回報' : '輸入回報內容'}">${escapeHtml(p.draftReport||'')}</textarea>
-
-       
-
-        <div style="margin-top:6px">
-          <button onclick="submitReport('${p.id}')" ${p.status==='已結案'||p.status==='已停止' ? 'disabled' : ''}>送出回報</button>
-        </div>
-      </div>
-
-      <div style="margin-top:8px">
-        <label>上傳影音/圖片</label>
-        <input type="file" id="media-${p.id}" multiple accept="image/*,video/*">
-        <div id="mediaPreview-${p.id}" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"></div>
-      </div>
-
- <div class="log" id="log-${p.id}">
-  ${p.logs.map(l => {
-    const safe = escapeHtml(l.text);
-    let html = "";
-    if(l.type === 'report'){ 
-      html = `<div class="msg"><div class="txt">${safe}</div><div><button onclick="deleteLog('${p.id}','${l.id}')">X</button></div></div>`;
-    } else {
-      html = `<div class="msg"><div class="txt">${safe}</div></div>`;
-    }
-
-    // ✅ 顯示附件
-    if(l.attachments && l.attachments.length > 0){
-      html += `<div class="attachments">
-        ${l.attachments.map(att => {
-          if(att.type.startsWith("image/")){
-            return `<div class="file-preview">
-                      <img src="${att.url}" style="width:120px;cursor:zoom-in;border:1px solid #ccc;border-radius:4px"
-                           ondblclick="showImagePreview('${att.url}')">
-                      <div class="filename">${escapeHtml(att.name)}</div>
-                    </div>`;
-          } else if(att.type.startsWith("video/")){
-            return `<div class="file-preview">
-                      <video src="${att.url}" controls style="width:160px;max-height:120px"></video>
-                      <div class="filename">${escapeHtml(att.name)}</div>
-                    </div>`;
-          } else {
-            return `<div class="file-preview">
-                      <a href="${att.url}" download="${escapeHtml(att.name)}">📄 ${escapeHtml(att.name)}</a>
-                    </div>`;
-          }
-        }).join('')}
-      </div>`;
-    }
-    return html;
-  }).join('')}
-
-`;
-    list.appendChild(div);
-
-    const logEl = document.getElementById(`log-${p.id}`);
-    if(logEl) logEl.scrollTop = logEl.scrollHeight;
-
-    const mediaInput = document.getElementById(`media-${p.id}`);
-    if(mediaInput) mediaInput.onchange = ()=> handleMediaUpload(p.id);
   });
+
+  if(filteredProjects.length === 0){
+    list.innerHTML = "<p>目前沒有符合條件的專案</p>";
+    return;
+  }
+  if(currentIndex >= filteredProjects.length) currentIndex = filteredProjects.length - 1;
+  if(currentIndex < 0) currentIndex = 0;
+
+  const p = filteredProjects[currentIndex];
+  const elapsedMs = p.totalTime + ((p.status === "執行中" && p.startTime) ? (Date.now() - p.startTime) : 0);
+  const same = projects.filter(x=>x.assignee===p.assignee).sort((a,b)=>a.priority-b.priority);
+  let priorityOpts = "";
+  for(let i=1;i<=same.length;i++){
+    priorityOpts += `<option value="${i}" ${p.priority===i? 'selected':''}>${i}</option>`;
+  }
+  const prog = progressPercent(p);
+  const progHtml = prog ? `<div class="small">進度：${prog.percent}%<br>（${prog.elapsedDays}/${prog.totalPlannedDays} 天）</div>` : '';
+
+  const div = document.createElement("div");
+  div.className = "task";
+  div.innerHTML = `
+    <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
+      <div style="flex:1">
+       <strong class="meta">專案編號: ${escapeHtml(p.projectCode)}</strong>
+       <br>
+       <strong class="meta">專案名稱: ${escapeHtml(p.name)}</strong>
+       <div class="meta">建立日期：${new Date(p.created).toLocaleString()}</div>
+       <div class="meta">指派人：${escapeHtml(p.supervisor)}</div>
+        <div class="meta">${escapeHtml(p.assignee)} ／ ${escapeHtml(p.department)} ／ 優先 ${p.priority}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="small">累積工時</div>
+        <div style="font-weight:700" id="elapsed-${p.id}">${formatTime(elapsedMs)}</div>
+        <div class="small">效率：${efficiency(p)}</div>${progHtml}
+      </div>
+    </div>
+
+    <div style="margin-top:8px">
+      <label style="margin:6px 0 4px">優先度 (1 = 最高)</label>
+      <select style="width:20%;" onchange="changePriority('${p.id}', this.value)">${priorityOpts}</select>
+    </div>
+
+    <div class="controls" style="margin-top:8px">
+      <button onclick="startProject('${p.id}')" ${p.status==='執行中' ? 'disabled' : ''}>▶ 開始</button>
+      <button onclick="pauseProject('${p.id}')" ${p.status!=='執行中' ? 'disabled' : ''}>⏸ 暫停</button>
+      <button onclick="stopProject('${p.id}')" ${p.status==='已停止' || p.status==='已結案' ? 'disabled' : ''}>■ 停止（中止）</button>
+      <button onclick="closeProject('${p.id}')" ${p.status==='已結案' ? 'disabled' : ''}>✅ 結案</button>
+    </div>
+
+    <div style="margin-top:8px">
+      <label style="margin-top:6px">預計完成日</label>
+      <input type="date" id="date-${p.id}" value="${p.expectedDate||''}" 
+      ${p.status==='已結案'||p.status==='已停止' ? 'disabled' : ''}>
+      
+      <label style="margin-top:6px">執行總工時</label>
+      <input type="number" id="totalHours-${p.id}" min="0" step="0.1" placeholder="例如：12.5" value="${p.manualTotalHours||''}">
+      
+      <label>回報進度</label>
+      <textarea id="report-${p.id}" placeholder="${p.status==='已結案'||p.status==='已停止' ? '本專案已結案或已停止，不可回報' : '輸入回報內容'}">${escapeHtml(p.draftReport||'')}</textarea>
+      <div style="margin-top:6px">
+        <button onclick="submitReport('${p.id}')" ${p.status==='已結案'||p.status==='已停止' ? 'disabled' : ''}>送出回報</button>
+      </div>
+    </div>
+
+    <div style="margin-top:8px">
+      <label>上傳影音/圖片</label>
+      <input type="file" id="media-${p.id}" multiple accept="image/*,video/*">
+      <div id="mediaPreview-${p.id}" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"></div>
+    </div>
+
+    <!-- 📋 回報紀錄 -->
+    <div style="margin-top:8px">
+      <h4>📋 回報紀錄</h4>
+      <div class="log" id="reportLog-${p.id}">
+        ${p.logs.filter(l => l.type === 'report').map(l => {
+          const safe = escapeHtml(l.text);
+          let html = `<div class="msg"><div class="txt">${safe}</div>
+            <div><button onclick="deleteLog('${p.id}','${l.id}')">X</button></div>
+          </div>`;
+          if(l.attachments && l.attachments.length > 0){
+            html += `<div class="attachments">
+              ${l.attachments.map(att => {
+                if(att.type.startsWith("image/")){
+                  return `<div class="file-preview">
+                    <img src="${att.url}" style="width:120px;cursor:zoom-in;border:1px solid #ccc;border-radius:4px" ondblclick="showImagePreview('${att.url}')">
+                    <div class="filename">${escapeHtml(att.name)}</div>
+                  </div>`;
+                } else if(att.type.startsWith("video/")){
+                  return `<div class="file-preview">
+                    <video src="${att.url}" controls style="width:160px;max-height:120px"></video>
+                    <div class="filename">${escapeHtml(att.name)}</div>
+                  </div>`;
+                } else {
+                  return `<div class="file-preview">
+                    <a href="${att.url}" download="${escapeHtml(att.name)}">📄 ${escapeHtml(att.name)}</a>
+                  </div>`;
+                }
+              }).join('')}
+            </div>`;
+          }
+          return html;
+        }).join('')}
+      </div>
+    </div>
+
+    <!-- ⚙ 系統紀錄 -->
+    <div style="margin-top:8px">
+      <h4 style="cursor:pointer" onclick="toggleSystemLog('${p.id}')">
+        ⚙ 系統紀錄（點我展開/收合）
+      </h4>
+      <div class="log" id="systemLog-${p.id}" style="display:none;">
+        ${p.logs.filter(l => l.type !== 'report').map(l => {
+          const safe = escapeHtml(l.text);
+          return `<div class="msg"><div class="txt">${safe}</div></div>`;
+        }).join('')}
+      </div>
+    </div>
+  `;
+  list.appendChild(div);
+
+  // 翻頁按鈕
+  const nav = document.createElement("div");
+  nav.style.textAlign = "center";
+  nav.style.marginTop = "12px";
+  nav.innerHTML = `
+    <button onclick="prevPage()" ${currentIndex===0?'disabled':''}>⬅ 上一頁</button>
+    <span style="margin:0 12px">第 ${currentIndex+1} / ${filteredProjects.length} 頁</span>
+    <button onclick="nextPage()" ${currentIndex===filteredProjects.length-1?'disabled':''}>下一頁 ➡</button>
+  `;
+  list.appendChild(nav);
+
+  const mediaInput = document.getElementById(`media-${p.id}`);
+  if(mediaInput) mediaInput.onchange = ()=> handleMediaUpload(p.id);
 }
 
 /* 更新 timers */
 function updateTimers(){
-  projects.forEach(p=>{
-    const el = document.getElementById(`elapsed-${p.id}`);
-    if(!el) return;
-    const elapsedMs = p.totalTime + ((p.status === "執行中" && p.startTime) ? (Date.now() - p.startTime) : 0);
-    el.textContent = formatTime(elapsedMs);
-  });
+  const p = filteredProjects[currentIndex];
+  if(!p) return;
+  const el = document.getElementById(`elapsed-${p.id}`);
+  if(!el) return;
+  const elapsedMs = p.totalTime + ((p.status === "執行中" && p.startTime) ? (Date.now() - p.startTime) : 0);
+  el.textContent = formatTime(elapsedMs);
   updateCounters();
+}
+
+/* ---------- 收合/展開 ---------- */
+function toggleSystemLog(projectId){
+  const box = document.getElementById(`systemLog-${projectId}`);
+  if(!box) return;
+  box.style.display = (box.style.display === "none") ? "block" : "none";
 }
 
 /* ---------- 初始化 ---------- */
