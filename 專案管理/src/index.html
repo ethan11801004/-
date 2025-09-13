@@ -19,7 +19,8 @@
 <h1 id="dynamicTitle">📝專案管理系統🖋️</h1>
 <div class="container">
 <div class="card">
-<button id="toggleSupervisor" style="width:20%;margin-bottom:8px;">📌 主管指派專案</button>
+<button id="toggleSupervisor" style="width:20%;margin-bottom:8px;" onclick="toggleSupervisorPanel()">📌 主管指派專案</button>
+
   <div id="supervisorPanel" style="display:none">
 <label>專案名稱</label>
 <input id="projectName" placeholder="專案名稱">
@@ -27,12 +28,13 @@
 <input id="assignee" placeholder="負責人員">
 <label>開立部門</label>
 <select style="width:20%;" id="department">
-<option value="1771製成工程部">1771製成工程部</option>
+<option value="1771製程工程部">1771製程工程部</option>
 <option value="1731設備工程部">1731設備工程部</option>
 <option value="1741品保中心">1741品保中心</option>
 </select>
 
-<div style="margin-top:10px;"><button onclick="addProject()">➕ 新增專案</button></div>
+<div style="margin-top:10px;"><button onclick="addProject()">➕ 新增專案</button>
+<button onclick="logoutSupervisor()">🔚登出</button></div>
 <hr style="margin:12px 0;border:none;border-top:1px solid #0000FF">
 
 <h3>主管通知</h3>
@@ -43,6 +45,7 @@
 <div style="margin-top:8px;"><button onclick="sendNotification()">發送通知</button></div>
 <div id="notifyLog" class="small" style="margin-top:12px;"></div>
 </div>
+  <hr style="margin:12px 0;border:none;border-top:1px solid #0000FF">
 <div class="card wide">
 <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;">
 <div class="card2">

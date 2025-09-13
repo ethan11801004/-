@@ -1,11 +1,7 @@
-document.getElementById("toggleSupervisor").addEventListener("click", function(){
-  const panel = document.getElementById("supervisorPanel");
-  panel.style.display = panel.style.display === "none" ? "block" : "none";
-});
-
 const SUPER_PASSWORD = "666666";
 let projects = [];        
 let notifications = [];
+let currentSupervisor = null; // 記錄目前登入者
 
 /* ---------- helpers ---------- */
 function genId(){ return Date.now().toString(36) + "-" + Math.floor(Math.random()*10000); }
@@ -19,6 +15,45 @@ function formatTime(ms){
   return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
 }
 
+function logoutSupervisor() {
+  if (confirm("確定要登出嗎？")) {
+    currentSupervisor = null;
+    document.getElementById("supervisorPanel").style.display = "none";
+    alert("已登出，可以重新登入其他帳號");
+  }
+}
+
+function toggleSupervisorPanel() {
+  if (!currentSupervisor) {
+    const user = prompt("請輸入帳號:");
+    const pass = prompt("請輸入密碼:");
+
+    if ((user === "user1" && pass === "123") ||
+        (user === "user2" && pass === "456") ||
+        (user === "user3" && pass === "789")
+       )
+    {
+      currentSupervisor = user; // 登入成功
+      alert("登入成功，歡迎 " + user);
+      document.getElementById("supervisorPanel").style.display = "block"; // 顯示主管區域
+    } else {
+      alert("帳號或密碼錯誤！");
+    }
+  } else {
+    // 已登入 → 按下按鈕只切換顯示/隱藏
+    const panel = document.getElementById("supervisorPanel");
+    panel.style.display = panel.style.display === "none" ? "block" : "none";
+  }
+}
+
+/* ---------- 專案編號生成 ---------- */
+function getNextProjectCode() {
+  if (projects.length === 0) return '0000000001';
+  const maxCode = Math.max(...projects.map(p => Number(p.projectCode)));
+  const nextCode = maxCode + 1;
+  return String(nextCode).padStart(10, '0');
+}
+
 /* ---------- 新增專案 ---------- */
 function addProject(){
   const name = document.getElementById("projectName").value.trim();
@@ -29,13 +64,15 @@ function addProject(){
   const priority = same.length + 1;
   const p = {
     id: genId(),
+    projectCode: getNextProjectCode(),
     name, assignee, department, priority,
+    supervisor: currentSupervisor || "未指派",
     status: "未開始",
     startTime: null,
     totalTime: 0,
     created: Date.now(),
     endAt: null,
-    logs: [{id: genId(), text:`建立於 ${nowISO()}`, type:'system', time:Date.now()}],
+    logs: [{id: genId(),}],
     draftReport: "",
     expectedDate: "",
     manualTotalHours: "",
@@ -443,7 +480,11 @@ function renderProjects(){
     div.innerHTML = `
       <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">
         <div style="flex:1">
-          <strong>${escapeHtml(p.name)}</strong>
+         <strong class="meta">專案編號: ${escapeHtml(p.projectCode)}</strong>
+         <br>
+         <strong class="meta">專案名稱: ${escapeHtml(p.name)}</strong>
+         <div class="meta">建立日期：${new Date(p.created).toLocaleString()}</div>
+         <div class="meta">指派人：${escapeHtml(p.supervisor)}</div>
           <div class="meta">${escapeHtml(p.assignee)} ／ ${escapeHtml(p.department)} ／ 優先 ${p.priority}</div>
           ${progHtml}
         </div>
@@ -470,11 +511,14 @@ function renderProjects(){
         <label style="margin-top:6px">預計完成日</label>
         <input type="date" id="date-${p.id}" value="${p.expectedDate||''}" 
        ${p.status==='已結案'||p.status==='已停止' ? 'disabled' : ''}>
+       
+        <label style="margin-top:6px">執行總工時</label>
+        <input type="number" id="totalHours-${p.id}" min="0" step="0.1" placeholder="例如：12.5" value="${p.manualTotalHours||''}">
+       
         <label>回報進度</label>
         <textarea id="report-${p.id}" placeholder="${p.status==='已結案'||p.status==='已停止' ? '本專案已結案或已停止，不可回報' : '輸入回報內容'}">${escapeHtml(p.draftReport||'')}</textarea>
 
-        <label style="margin-top:6px">執行總工時</label>
-        <input type="number" id="totalHours-${p.id}" min="0" step="0.1" placeholder="例如：12.5" value="${p.manualTotalHours||''}">
+       
 
         <div style="margin-top:6px">
           <button onclick="submitReport('${p.id}')" ${p.status==='已結案'||p.status==='已停止' ? 'disabled' : ''}>送出回報</button>
